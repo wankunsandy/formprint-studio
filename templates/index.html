@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FormPrint Studio - Konversi Google Form ke Naskah Cetak</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <div class="max-w-4xl mx-auto py-10 px-4 flex-grow w-full">
+    
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <span class="px-3 py-1 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-full">Otomatisasi Dokumen Ujian</span>
+      <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mt-3">FormPrint Studio</h1>
+      <p class="text-slate-500 mt-2 text-sm md:text-base">Ubah Google Form menjadi naskah soal siap cetak (DOCX & PDF) lengkap dengan gambar dan tabel kisi.</p>
+    </div>
+
+    <!-- Panel Utama Input -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 mb-6">
+      <form id="generateForm" class="space-y-6">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">1. Masukkan Link Google Form Publik</label>
+          <input 
+            type="url" 
+            id="formUrl" 
+            required 
+            placeholder="https://docs.google.com/forms/d/e/.../viewform"
+            class="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition text-sm"
+          >
+          <p class="text-xs text-slate-400 mt-1.5">Pastikan pengaturan formulir tidak dibatasi login akun tertentu (bisa dibuka secara publik).</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">2. Unggah File Template Word (.docx)</label>
+          <input 
+            type="file" 
+            id="templateFile" 
+            accept=".docx" 
+            required
+            class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-lg p-1.5"
+          >
+        </div>
+
+        <button 
+          type="submit" 
+          id="btnSubmit"
+          class="w-full py-3.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition flex items-center justify-center space-x-2 shadow-sm"
+        >
+          <span>Generate Naskah Siap Cetak</span>
+        </button>
+      </form>
+
+      <!-- Indikator Proses -->
+      <div id="loadingIndicator" class="hidden mt-6 text-center py-6 border-t border-slate-100">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent"></div>
+        <p class="text-sm font-medium text-slate-600 mt-3">Mengekstrak soal, mengunduh gambar, & menyusun dokumen cetak...</p>
+      </div>
+
+      <!-- Peringatan Error -->
+      <div id="errorAlert" class="hidden mt-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg"></div>
+    </div>
+
+    <!-- Panduan Singkat Tag Template (Collapsible) -->
+    <details class="bg-white rounded-xl border border-slate-200 px-6 py-4 mb-8 text-sm text-slate-600 shadow-sm">
+      <summary class="font-semibold text-slate-700 cursor-pointer select-none">
+        Lihat Panduan Kode Tag Template Word (Jinja2)
+      </summary>
+      <div class="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs leading-relaxed">
+        <p>Gunakan tag berikut di dalam dokumen Microsoft Word (<code>.docx</code>) Anda:</p>
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto font-mono text-xs">{{ judul_form }}
+{{ deskripsi_form }}
+
+{% for bagian in daftar_bagian %}
+{{ bagian.nama_bagian }}
+{{ bagian.petunjuk }}
+
+{% for item in bagian.soal %}
+{{ item.no_global }}. {{ item.pertanyaan }}
+{% if item.ada_gambar %}{{ item.gambar }}{% endif %}
+
+{% if item.tipe == 'pilihan_ganda' %}
+   {% for opt in item.opsi %}({{ opt.huruf }}) {{ opt.teks }} {% if opt.ada_gambar %}{{ opt.gambar }}{% endif %}   {% endfor %}
+{% elif item.tipe == 'pg_kompleks' %}
+   {% for opt in item.opsi %}[  ] {{ opt.huruf }}. {{ opt.teks }}
+   {% endfor %}
+{% elif item.tipe == 'benar_salah' %}
+   [Buat Tabel 3 Kolom: {%tr for b in item.baris %}{{ b.sub_no }}. {{ b.teks }} | [  ] | [  ]{%tr endfor %}]
+{% elif item.tipe == 'kisi_pilihan_ganda' %}
+   [Buat Tabel Matriks: {%tr for b in item.baris %}{{ b.no_angka }}. {{ b.teks }} | ( ) | ( ) | ( ) | ( ){%tr endfor %}]
+{% elif item.tipe == 'menjodohkan' %}
+   [Buat Tabel 2 Kolom: Kolom Kiri loop item.kiri, Kolom Kanan loop item.kanan]
+{% else %}
+   Jawab: ........................................................................
+{% endif %}
+{% endfor %}
+{% endfor %}</pre>
+      </div>
+    </details>
+
+    <!-- Panel Hasil & Pratinjau PDF -->
+    <div id="resultPanel" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 space-y-6">
+      
+      <!-- Banner Sukses -->
+      <div class="flex items-center space-x-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800">
+        <svg class="h-6 w-6 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span id="successMessage" class="font-medium text-sm md:text-base">Dokumen siap cetak sudah selesai di-generate!</span>
+      </div>
+
+      <!-- Tombol Unduh -->
+      <div class="flex flex-wrap gap-4 justify-between items-center pb-4 border-b border-slate-100">
+        <h3 class="font-semibold text-slate-700">Pratinjau Dokumen:</h3>
+        <div class="flex space-x-3">
+          <a id="btnDownloadDocx" href="#" class="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition">
+            Unduh DOCX (Word)
+          </a>
+          <a id="btnDownloadPdf" href="#" class="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition">
+            Unduh PDF Siap Cetak
+          </a>
+        </div>
+      </div>
+
+      <!-- Kotak Iframe Preview -->
+      <div class="w-full h-[680px] border border-slate-200 rounded-lg overflow-hidden bg-slate-100">
+        <iframe id="pdfPreviewFrame" src="" class="w-full h-full border-none"></iframe>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="text-center py-6 text-xs text-slate-400">
+    Berkas hasil konversi otomatis dihapus dari server setelah 30 menit demi menjaga kerahasiaan naskah soal.
+  </footer>
+
+  <script>
+    const form = document.getElementById('generateForm');
+    const btnSubmit = document.getElementById('btnSubmit');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const errorAlert = document.getElementById('errorAlert');
+    const resultPanel = document.getElementById('resultPanel');
+    const pdfPreviewFrame = document.getElementById('pdfPreviewFrame');
+    const btnDownloadDocx = document.getElementById('btnDownloadDocx');
+    const btnDownloadPdf = document.getElementById('btnDownloadPdf');
+    const successMessage = document.getElementById('successMessage');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const formUrl = document.getElementById('formUrl').value;
+      const fileInput = document.getElementById('templateFile');
+
+      if (!fileInput.files[0]) return;
+
+      errorAlert.classList.add('hidden');
+      resultPanel.classList.add('hidden');
+      loadingIndicator.classList.remove('hidden');
+      btnSubmit.disabled = true;
+      btnSubmit.classList.add('opacity-50');
+
+      const formData = new FormData();
+      formData.append('form_url', formUrl);
+      formData.append('template_file', fileInput.files[0]);
+
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          let msg = errText;
+          try {
+            const parsed = JSON.parse(errText);
+            msg = parsed.detail || errText;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+
+        const data = await response.json();
+        successMessage.textContent = data.message;
+
+        if (data.has_pdf) {
+          pdfPreviewFrame.removeAttribute('srcdoc');
+          pdfPreviewFrame.src = data.preview_url;
+          btnDownloadPdf.classList.remove('hidden');
+          btnDownloadPdf.href = data.download_pdf;
+        } else {
+          pdfPreviewFrame.src = '';
+          pdfPreviewFrame.srcdoc = `
+            <div style="font-family: sans-serif; display: flex; height: 100%; align-items: center; justify-content: center; text-align: center; color: #64748b; padding: 20px;">
+              <div>
+                <p style="font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1e293b;">Berkas DOCX Berhasil Dibuat!</p>
+                <p style="font-size: 13px;">Pratinjau PDF tidak tampil karena LibreOffice belum terpasang di perangkat lokal.<br>Silakan klik tombol <b>Unduh DOCX (Word)</b> di atas.</p>
+              </div>
+            </div>`;
+          btnDownloadPdf.classList.add('hidden');
+        }
+
+        btnDownloadDocx.href = data.download_docx;
+        resultPanel.classList.remove('hidden');
+        resultPanel.scrollIntoView({ behavior: 'smooth' });
+      } catch (err) {
+        errorAlert.textContent = err.message;
+        errorAlert.classList.remove('hidden');
+      } finally {
+        loadingIndicator.classList.add('hidden');
+        btnSubmit.disabled = false;
+        btnSubmit.classList.remove('opacity-50');
+      }
+    });
+  </script>
+</body>
+</html>
